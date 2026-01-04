@@ -1,0 +1,25 @@
+[package]
+name = "kmm-rs"
+version = "1.0.0"
+edition = "2021"
+authors = ["Joseph Quinn <quinn.josephr@protonmail.com>"]
+description = "Rust implementation of k-Markov Models for DNA sequence classification (PluMA plugin)"
+license = "MIT"
+
+[lib]
+name = "kmm_rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kmm"
+path = "src/main.rs"
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = "3.10"
+criterion = "0.8.0"
+
+[[bench]]
+name = "kmm_bench"
+harness = false
