@@ -5,10 +5,13 @@
 //!
 //! Original C++ implementation: movingpictures83/KMM
 
+use pluma_plugin_trait::PluMAPlugin;
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::Path;
+use std::os::raw::c_char;
+use std::path::{Path, PathBuf};
 
 /// Map base to index (A=0, C=1, G=2, T=3)
 #[inline(always)]
@@ -562,6 +565,120 @@ impl KmmPlugin {
 
     pub fn order(&self) -> usize {
         self.order
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PluMA plugin contract (pluma-plugin-trait + dlsym-resolved FFI shims)
+// ---------------------------------------------------------------------------
+
+/// Resolve a path referenced inside a config file against the PluMA pipeline
+/// convention (`<prefix>/parameters/<config>.txt` → resolve against `<prefix>`).
+/// Falls back to the config file's parent directory, then the raw value.
+fn resolve_against_config(config_file: &Path, value: &str) -> PathBuf {
+    let p = Path::new(value);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    let cfg_dir = config_file.parent();
+    let prefix = cfg_dir.and_then(Path::parent);
+    if let Some(pre) = prefix {
+        let candidate = pre.join(p);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    if let Some(cd) = cfg_dir {
+        let candidate = cd.join(p);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    prefix
+        .map(|pre| pre.join(p))
+        .unwrap_or_else(|| p.to_path_buf())
+}
+
+impl PluMAPlugin for KmmPlugin {
+    fn input(&mut self, filepath: String) -> Result<(), Box<dyn std::error::Error>> {
+        // 1. Let the inherent input() parse the config and stash raw paths.
+        let config_path = PathBuf::from(&filepath);
+        KmmPlugin::input(self, &config_path).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        // 2. Rewrite the stashed paths so they're resolved against the
+        //    pipeline prefix (PluMA convention), not cwd.
+        if !self.models_path.is_empty() {
+            self.models_path = resolve_against_config(&config_path, &self.models_path)
+                .to_string_lossy()
+                .into_owned();
+        }
+        if !self.input_file.is_empty() {
+            self.input_file = resolve_against_config(&config_path, &self.input_file)
+                .to_string_lossy()
+                .into_owned();
+        }
+        Ok(())
+    }
+    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        KmmPlugin::run(self);
+        Ok(())
+    }
+    fn output(&mut self, filepath: String) -> Result<(), Box<dyn std::error::Error>> {
+        KmmPlugin::output(self, &filepath).map_err(|e| -> Box<dyn std::error::Error> { e.into() })
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn KMM_plugin_create() -> *mut std::ffi::c_void {
+    Box::into_raw(Box::new(KmmPlugin::new())) as *mut std::ffi::c_void
+}
+
+#[no_mangle]
+pub extern "C" fn KMM_plugin_destroy(ptr: *mut std::ffi::c_void) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = Box::from_raw(ptr as *mut KmmPlugin);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn KMM_plugin_input(ptr: *mut std::ffi::c_void, filename: *const c_char) {
+    if ptr.is_null() || filename.is_null() {
+        return;
+    }
+    unsafe {
+        let plugin = &mut *(ptr as *mut KmmPlugin);
+        let s = CStr::from_ptr(filename).to_str().unwrap_or("").to_string();
+        if let Err(e) = <KmmPlugin as PluMAPlugin>::input(plugin, s) {
+            eprintln!("[KMM] input error: {e}");
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn KMM_plugin_run(ptr: *mut std::ffi::c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let plugin = &mut *(ptr as *mut KmmPlugin);
+        if let Err(e) = <KmmPlugin as PluMAPlugin>::run(plugin) {
+            eprintln!("[KMM] run error: {e}");
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn KMM_plugin_output(ptr: *mut std::ffi::c_void, filename: *const c_char) {
+    if ptr.is_null() || filename.is_null() {
+        return;
+    }
+    unsafe {
+        let plugin = &mut *(ptr as *mut KmmPlugin);
+        let s = CStr::from_ptr(filename).to_str().unwrap_or("").to_string();
+        if let Err(e) = <KmmPlugin as PluMAPlugin>::output(plugin, s) {
+            eprintln!("[KMM] output error: {e}");
+        }
     }
 }
 
