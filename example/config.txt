@@ -1,0 +1,13 @@
+# Minimal PluMA pipeline that drives the KMM (k-Markov Models) plugin against
+# the synthetic two-class fixture in this directory.
+#
+# Run from the kmm-rs repo root:
+#
+#     pluma example/config.txt
+#
+# or via the convenience script (which builds the .so, stages it, and diffs
+# the output against expected_output.tsv):
+#
+#     example/run_pluma_example.sh
+Prefix example/
+Plugin KMM  inputfile parameters/kmm.txt  outputfile out/results.tsv

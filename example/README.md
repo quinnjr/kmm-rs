@@ -25,61 +25,48 @@ example/
 │   └── AT_rich.fa
 ├── sequences.fasta           20 unlabeled reads to classify
 ├── expected_output.tsv       Reference output for regression testing
+├── config.txt                Minimal PluMA pipeline (Prefix + one Plugin line)
+├── run_pluma_example.sh      One-shot wrapper: builds .so, runs pluma, diffs output
 └── README.md                 (this file)
 ```
 
-## Regenerating
+## Running through the pluma binary
 
-The fixture is fully deterministic — the same seed (xorshift64*, `0xC0FFEE` /
-`0xBADC0DE`) yields the same bytes every run. To regenerate:
+```bash
+./example/run_pluma_example.sh                    # uses `pluma` from $PATH
+./example/run_pluma_example.sh /path/to/pluma     # explicit binary
+PLUMA=/path/to/pluma ./example/run_pluma_example.sh
+```
+
+The script builds the release `.so`, stages it under a temporary
+`PLUMA_PLUGIN_PATH` as `KMM/libKMMPlugin.so`, runs `pluma example/config.txt`
+from the repo root, and diffs `example/out/results.tsv` against the committed
+`expected_output.tsv`. Returns non-zero on mismatch.
+
+The plugin's `PluMAPlugin::input()` impl resolves the `models` and `input`
+paths inside `parameters/kmm.txt` against the pipeline prefix (the parent of
+`parameters/`), so the fixture's relative paths work without modification.
+
+Requires a `pluma` built with `--with-rust` and the `HAVE_RUST`-define fix
+from [FIUBioRG/PluMA#13](https://github.com/FIUBioRG/PluMA/pull/13).
+
+## Regenerating the synthetic data
+
+The fixture is fully deterministic — same seed (xorshift64\*, `0xC0FFEE` /
+`0xBADC0DE`) yields the same bytes every run. To regenerate the entire
+fixture (training genomes, models, test reads, parameter file, expected
+output):
 
 ```bash
 cargo run --release --example generate_fixture
 ```
 
-The generator also asserts that all 20 reads classify correctly against their
-true class; if you break the algorithm, it fails fast.
-
-## Running the example
-
-### Via the CLI binary (`kmm`)
-
-```bash
-# From the example/ directory so the relative paths resolve:
-cd example
-cargo run --release --bin kmm parameters/kmm.txt /tmp/kmm.out
-diff /tmp/kmm.out expected_output.tsv
-```
-
-### Via PluMA (real Rust plugin)
-
-Once [`FIUBioRG/PluMA#13`](https://github.com/FIUBioRG/PluMA/pull/13) lands so
-`pluma` is built with `-DHAVE_RUST`, drop the `.so` and `Cargo.toml` under
-`PluMA/plugins/KMM/`:
-
-```bash
-cd /path/to/PluMA/plugins
-mkdir -p KMM
-ln -sfn /path/to/kmm-rs/target/release/libkmm_rs.so KMM/libKMMPlugin.so
-ln -sfn /path/to/kmm-rs/Cargo.toml KMM/Cargo.toml
-```
-
-…and run a one-Plugin pipeline:
-
-```
-# config.txt
-Prefix /path/to/kmm-rs/example/
-Plugin KMM  inputfile parameters/kmm.txt  outputfile /tmp/kmm.out
-```
-
-```bash
-pluma config.txt
-diff /tmp/kmm.out /path/to/kmm-rs/example/expected_output.tsv
-```
-
-The plugin's `PluMAPlugin::input()` impl resolves the `models` and `input`
-paths inside `parameters/kmm.txt` against the pipeline prefix (the parent of
-`parameters/`), so no absolute paths or `$cwd` tricks are needed.
+The generator is a Rust example binary (not a unit test); it uses the kmm-rs
+library API to train fresh `.model` files from the seeded training FASTAs and
+asserts that all 20 test reads classify back to their true class. Use it
+when you change the algorithm or want to rebuild the fixture from scratch —
+**the example itself is exercised end-to-end through the pluma binary**, not
+through this generator.
 
 ## Expected output
 
