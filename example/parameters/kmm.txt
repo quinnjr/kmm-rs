@@ -1,0 +1,9 @@
+# kmm-rs example parameters
+#   order: k-Markov order (3 → 4-mer transition probabilities)
+#   models: directory of .model files; basename = class label
+#   input: FASTA of reads to classify
+# Paths are relative to the pipeline prefix (the parent of
+# this file's directory), matching PluMA's R-plugin convention.
+order	3
+models	models
+input	sequences.fasta
